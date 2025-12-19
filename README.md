@@ -29,3 +29,14 @@ of this repository: `maturin develop --release` (look at the
 [`maturin` homepage] for instructions to install `maturin`).
 
 [`maturin` homepage]: https://www.maturin.rs/#usage
+
+---
+# Rust backend for Graphix
+
+`graphix-rust-backend` is a plugin for the
+[Graphix](https://github.com/TeamGraphix/graphix) library that
+efficiently runs statevector simulations.
+
+## Installation
+
+## Usage
