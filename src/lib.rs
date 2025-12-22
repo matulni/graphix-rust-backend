@@ -360,7 +360,7 @@ impl Statevec {
 }
 
 #[pyo3::pymodule]
-fn mbqc_rs<'py>(
+fn _statevec_backend_rs<'py>(
     _py: pyo3::prelude::Python<'py>,
     m: &pyo3::prelude::Bound<'py, pyo3::types::PyModule>,
 ) -> pyo3::prelude::PyResult<()> {

@@ -2,26 +2,20 @@
 
 from __future__ import annotations
 
-import copy
 import dataclasses
-import functools
-import math
-from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, SupportsComplex, SupportsFloat
+from typing import TYPE_CHECKING
 
+import _statevec_backend_rs as _backend  # noqa: PLC2701
 import numpy as np
-import numpy.typing as npt
-from graphix import parameter, states
-from graphix.parameter import Expression, ExpressionOrSupportsComplex, check_expression_or_float
-from graphix.sim.base_backend import DenseState, DenseStateBackend, Matrix, kron, tensordot
+from graphix.sim.base_backend import DenseState, DenseStateBackend, Matrix
 from graphix.states import BasicStates
 from typing_extensions import override
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
 
-    from graphix.parameter import ExpressionOrFloat, ExpressionOrSupportsFloat, Parameter
+    from graphix.parameter import ExpressionOrSupportsFloat, Parameter
     from graphix.sim.data import Data
 
 
@@ -75,69 +69,70 @@ class Statevec(DenseState):
         if nqubit is not None and nqubit < 0:
             raise ValueError("nqubit must be a non-negative integer.")
 
-        if isinstance(data, Statevec):
-            # assert nqubit is None or len(state.flatten()) == 2**nqubit
-            if nqubit is not None and len(data.flatten()) != 2**nqubit:
-                raise ValueError(
-                    f"Inconsistent parameters between nqubit = {nqubit} and the inferred number of qubit = {len(data.flatten())}."
-                )
-            self.psi = data.psi.copy()
-            return
+        # if isinstance(data, Statevec):
+        #     # assert nqubit is None or len(state.flatten()) == 2**nqubit
+        #     if nqubit is not None and len(data.flatten()) != 2**nqubit:
+        #         raise ValueError(
+        #             f"Inconsistent parameters between nqubit = {nqubit} and the inferred number of qubit = {len(data.flatten())}."
+        #         )
+        #     self.psi = data.psi.copy()
+        #     return
 
-        # The type
-        # list[states.State] | list[ExpressionOrSupportsComplex] | list[Iterable[ExpressionOrSupportsComplex]]
-        # would be more precise, but given a value X of type Iterable[A] | Iterable[B],
-        # mypy infers that list(X) has type list[A | B] instead of list[A] | list[B].
-        input_list: list[states.State | ExpressionOrSupportsComplex | Iterable[ExpressionOrSupportsComplex]]
-        if isinstance(data, states.State):
-            if nqubit is None:
-                nqubit = 1
-            input_list = [data] * nqubit
-        elif isinstance(data, Iterable):
-            input_list = list(data)
-        else:
-            raise TypeError(f"Incorrect type for data: {type(data)}")
+        # # The type
+        # # list[states.State] | list[ExpressionOrSupportsComplex] | list[Iterable[ExpressionOrSupportsComplex]]
+        # # would be more precise, but given a value X of type Iterable[A] | Iterable[B],
+        # # mypy infers that list(X) has type list[A | B] instead of list[A] | list[B].
+        # input_list: list[states.State | ExpressionOrSupportsComplex | Iterable[ExpressionOrSupportsComplex]]
+        # if isinstance(data, states.State):
+        #     if nqubit is None:
+        #         nqubit = 1
+        #     input_list = [data] * nqubit
+        # elif isinstance(data, Iterable):
+        #     input_list = list(data)
+        # else:
+        #     raise TypeError(f"Incorrect type for data: {type(data)}")
 
-        if len(input_list) == 0:
-            if nqubit is not None and nqubit != 0:
-                raise ValueError("nqubit is not null but input state is empty.")
+        # if len(input_list) == 0:
+        #     if nqubit is not None and nqubit != 0:
+        #         raise ValueError("nqubit is not null but input state is empty.")
 
-            self.psi = np.array(1, dtype=np.complex128)
+        #     self.psi = np.array(1, dtype=np.complex128)
 
-        elif isinstance(input_list[0], states.State):
-            if nqubit is None:
-                nqubit = len(input_list)
-            elif nqubit != len(input_list):
-                raise ValueError("Mismatch between nqubit and length of input state.")
+        # elif isinstance(input_list[0], states.State):
+        #     if nqubit is None:
+        #         nqubit = len(input_list)
+        #     elif nqubit != len(input_list):
+        #         raise ValueError("Mismatch between nqubit and length of input state.")
 
-            def get_statevector(
-                s: states.State | ExpressionOrSupportsComplex | Iterable[ExpressionOrSupportsComplex],
-            ) -> npt.NDArray[np.complex128]:
-                if not isinstance(s, states.State):
-                    raise TypeError("Data should be an homogeneous sequence of states.")
-                return s.get_statevector()
+        #     def get_statevector(
+        #         s: states.State | ExpressionOrSupportsComplex | Iterable[ExpressionOrSupportsComplex],
+        #     ) -> npt.NDArray[np.complex128]:
+        #         if not isinstance(s, states.State):
+        #             raise TypeError("Data should be an homogeneous sequence of states.")
+        #         return s.get_statevector()
 
-            list_of_sv = [get_statevector(s) for s in input_list]
+        #     list_of_sv = [get_statevector(s) for s in input_list]
 
-            tmp_psi = functools.reduce(lambda m0, m1: np.kron(m0, m1).astype(np.complex128), list_of_sv)
-            # reshape
-            self.psi = tmp_psi.reshape((2,) * nqubit)
-        # `SupportsFloat` is needed because `numpy.float64` is not an instance of `SupportsComplex`!
-        elif isinstance(input_list[0], (Expression, SupportsComplex, SupportsFloat)):
-            if nqubit is None:
-                length = len(input_list)
-                if length & (length - 1):
-                    raise ValueError("Length is not a power of two")
-                nqubit = length.bit_length() - 1
-            elif nqubit != len(input_list).bit_length() - 1:
-                raise ValueError("Mismatch between nqubit and length of input state")
-            psi = np.array(input_list)
-            # check only if the matrix is not symbolic
-            if psi.dtype != "O" and not np.allclose(np.sqrt(np.sum(np.abs(psi) ** 2)), 1):
-                raise ValueError("Input state is not normalized")
-            self.psi = psi.reshape((2,) * nqubit)
-        else:
-            raise TypeError(f"First element of data has type {type(input_list[0])} whereas Number or State is expected")
+        #     tmp_psi = functools.reduce(lambda m0, m1: np.kron(m0, m1).astype(np.complex128), list_of_sv)
+        #     # reshape
+        #     self.psi = tmp_psi.reshape((2,) * nqubit)
+        # # `SupportsFloat` is needed because `numpy.float64` is not an instance of `SupportsComplex`!
+        # elif isinstance(input_list[0], (Expression, SupportsComplex, SupportsFloat)):
+        #     if nqubit is None:
+        #         length = len(input_list)
+        #         if length & (length - 1):
+        #             raise ValueError("Length is not a power of two")
+        #         nqubit = length.bit_length() - 1
+        #     elif nqubit != len(input_list).bit_length() - 1:
+        #         raise ValueError("Mismatch between nqubit and length of input state")
+        #     psi = np.array(input_list)
+        #     # check only if the matrix is not symbolic
+        #     if psi.dtype != "O" and not np.allclose(np.sqrt(np.sum(np.abs(psi) ** 2)), 1):
+        #         raise ValueError("Input state is not normalized")
+        #     self.psi = psi.reshape((2,) * nqubit)
+        # else:
+        #     raise TypeError(f"First element of data has type {type(input_list[0])} whereas Number or State is expected")
+        self.psi = _backend.new_vec(nqubit, _backend.Plus)
 
     def __str__(self) -> str:
         """Return a string description."""
@@ -168,8 +163,13 @@ class Statevec(DenseState):
         Previously existing nodes remain unchanged.
 
         """
-        sv_to_add = Statevec(nqubit=nqubit, data=data)
-        self.tensor(sv_to_add)
+        if data is BasicStates.PLUS:
+            state = _backend.Plus
+        elif data is BasicStates.ZERO:
+            state = _backend.Zero
+        else:
+            raise NotImplementedError
+        _backend.add_nodes(self.psi, nqubit, state)
 
     @override
     def evolve_single(self, op: Matrix, i: int) -> None:
@@ -184,8 +184,7 @@ class Statevec(DenseState):
             qubit index
 
         """
-        psi = tensordot(op, self.psi, (1, i))
-        self.psi = np.moveaxis(psi, 0, i)
+        _backend.evolve(self.psi, op.astype(np.complex128), i)
 
     @override
     def evolve(self, op: Matrix, qargs: Sequence[int]) -> None:
@@ -200,27 +199,18 @@ class Statevec(DenseState):
             target qubits' indices
 
         """
-        op_dim = int(np.log2(len(op)))
-        # TODO shape = (2,)* 2 * op_dim
-        shape = [2 for _ in range(2 * op_dim)]
-        op_tensor = op.reshape(shape)
-        psi = tensordot(
-            op_tensor,
-            self.psi,
-            (tuple(op_dim + i for i in range(len(qargs))), qargs),
-        )
-        self.psi = np.moveaxis(psi, range(len(qargs)), qargs)
+        raise NotImplementedError
 
     def dims(self) -> tuple[int, ...]:
         """Return the dimensions."""
-        return self.psi.shape
+        raise NotImplementedError
 
     # Note that `@property` must appear before `@override` for pyright
     @property
     @override
     def nqubit(self) -> int:
         """Return the number of qubits."""
-        return self.psi.size - 1
+        return _backend.get_nqubits(self.psi)
 
     @override
     def remove_qubit(self, qarg: int) -> None:
@@ -264,18 +254,7 @@ class Statevec(DenseState):
             qubit index
 
         """
-        norm = _get_statevec_norm(self.psi)
-        if isinstance(norm, SupportsFloat):
-            assert not np.isclose(norm, 0)
-        index: list[slice[int] | int] = [slice(None)] * self.psi.ndim
-        index[qarg] = 0
-        psi = self.psi[tuple(index)]
-        norm = _get_statevec_norm(psi)
-        if isinstance(norm, SupportsFloat) and math.isclose(norm, 0):
-            index[qarg] = 1
-            psi = self.psi[tuple(index)]
-        self.psi = psi
-        self.normalize()
+        _backend.remove_qubit(self.psi, qarg)
 
     @override
     def entangle(self, edge: tuple[int, int]) -> None:
@@ -288,10 +267,7 @@ class Statevec(DenseState):
             (control, target) qubit indices
 
         """
-        # contraction: 2nd index - control index, and 3rd index - target index.
-        psi = tensordot(CZ_TENSOR, self.psi, ((2, 3), edge))
-        # sort back axes
-        self.psi = np.moveaxis(psi, (0, 1), edge)
+        _backend.entangle(self.psi, edge)
 
     def tensor(self, other: Statevec) -> None:
         r"""
@@ -305,11 +281,7 @@ class Statevec(DenseState):
             statevector to be tensored with self
 
         """
-        psi_self = self.psi.flatten()
-        psi_other = other.psi.flatten()
-
-        total_num = len(self.dims()) + len(other.dims())
-        self.psi = kron(psi_self, psi_other).reshape((2,) * total_num)
+        _backend.tensor(self.psi, other.flatten())
 
     def cnot(self, qubits: tuple[int, int]) -> None:
         """
@@ -321,10 +293,7 @@ class Statevec(DenseState):
             (control, target) qubit indices
 
         """
-        # contraction: 2nd index - control index, and 3rd index - target index.
-        psi = tensordot(CNOT_TENSOR, self.psi, ((2, 3), qubits))
-        # sort back axes
-        self.psi = np.moveaxis(psi, (0, 1), qubits)
+        _backend.cnot(self.psi, qubits[0], qubits[1])
 
     @override
     def swap(self, qubits: tuple[int, int]) -> None:
@@ -337,29 +306,14 @@ class Statevec(DenseState):
             (control, target) qubit indices
 
         """
-        # contraction: 2nd index - control index, and 3rd index - target index.
-        psi = tensordot(SWAP_TENSOR, self.psi, ((2, 3), qubits))
-        # sort back axes
-        self.psi = np.moveaxis(psi, (0, 1), qubits)
+        _backend.swap(self.psi, qubits)
 
     def normalize(self) -> None:
         """Normalize the state in-place."""
-        # Note that the following calls to `astype` are guaranteed to
-        # return the original NumPy array itself, since `copy=False` and
-        # the `dtype` matches. This is important because the array is
-        # then modified in place.
-        if self.psi.dtype == np.object_:
-            psi_o = self.psi.astype(np.object_, copy=False)
-            norm_o = _get_statevec_norm_symbolic(psi_o)
-            psi_o /= norm_o
-        else:
-            psi_c = self.psi.astype(np.complex128, copy=False)
-            norm_c = _get_statevec_norm_numeric(psi_c)
-            psi_c /= norm_c
 
     def flatten(self) -> Matrix:
         """Return flattened statevector."""
-        return self.psi.flatten()
+        return _backend.get_vec(self.psi)
 
     @override
     def expectation_single(self, op: Matrix, loc: int) -> complex:
@@ -378,11 +332,7 @@ class Statevec(DenseState):
         complex : expectation value.
 
         """
-        st1 = copy.copy(self)
-        st1.normalize()
-        st2 = copy.copy(st1)
-        st1.evolve_single(op, loc)
-        return complex(np.dot(st2.psi.flatten().conjugate(), st1.psi.flatten()))
+        return _backend.expectation_value(self.psi, op, loc).real
 
     def expectation_value(self, op: Matrix, qargs: Sequence[int]) -> complex:
         """
@@ -400,23 +350,15 @@ class Statevec(DenseState):
         complex : expectation value
 
         """
-        st2 = copy.copy(self)
-        st2.normalize()
-        st1 = copy.copy(st2)
-        st1.evolve(op, qargs)
-        return complex(np.dot(st2.psi.flatten().conjugate(), st1.psi.flatten()))
+        raise NotImplementedError
 
     def subs(self, variable: Parameter, substitute: ExpressionOrSupportsFloat) -> Statevec:
         """Return a copy of the state vector where all occurrences of the given variable in measurement angles are substituted by the given value."""
-        result = Statevec()
-        result.psi = np.vectorize(lambda value: parameter.subs(value, variable, substitute))(self.psi)
-        return result
+        raise NotImplementedError
 
     def xreplace(self, assignment: Mapping[Parameter, ExpressionOrSupportsFloat]) -> Statevec:
         """Return a copy of the state vector where all occurrences of the given keys in measurement angles are substituted by the given values in parallel."""
-        result = Statevec()
-        result.psi = np.vectorize(lambda value: parameter.xreplace(value, assignment))(self.psi)
-        return result
+        raise NotImplementedError
 
 
 @dataclass(frozen=True)
@@ -424,24 +366,3 @@ class StatevectorBackend(DenseStateBackend[Statevec]):
     """MBQC simulator with statevector method."""
 
     state: Statevec = dataclasses.field(init=False, default_factory=lambda: Statevec(nqubit=0))
-
-
-def _get_statevec_norm_symbolic(psi: npt.NDArray[np.object_]) -> ExpressionOrFloat:
-    """Return norm of the state."""
-    flat = psi.flatten()
-    return check_expression_or_float(np.sqrt(np.sum(flat.conj() * flat)))
-
-
-def _get_statevec_norm_numeric(psi: npt.NDArray[np.complex128]) -> float:
-    flat = psi.flatten()
-    norm_sq = np.sum(flat.conj() * flat)
-    assert math.isclose(norm_sq.imag, 0, abs_tol=1e-15)
-    return math.sqrt(norm_sq.real)
-
-
-def _get_statevec_norm(psi: Matrix) -> ExpressionOrFloat:
-    """Return norm of the state."""
-    # Narrow psi to concrete dtype
-    if psi.dtype == np.object_:
-        return _get_statevec_norm_symbolic(psi.astype(np.object_, copy=False))
-    return _get_statevec_norm_numeric(psi.astype(np.complex128, copy=False))
