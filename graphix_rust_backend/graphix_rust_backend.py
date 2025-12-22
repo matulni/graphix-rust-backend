@@ -123,7 +123,8 @@ class Statevec(DenseState):
 
     def __str__(self) -> str:
         """Return a string description."""
-        return f"Statevec object with statevector {self.flatten()} and length {_backend.get_dims(self.psi)}."
+        sv = self.flatten()
+        return f"Statevec object with statevector {sv} and length {len(sv)}."
 
     @override
     def add_nodes(self, nqubit: int, data: Data) -> None:
@@ -236,6 +237,7 @@ class Statevec(DenseState):
             qubit index
 
         """
+        assert not np.isclose(_backend.norm(self.psi), 0)
         _backend.remove_qubit(self.psi, qarg)
 
     @override
