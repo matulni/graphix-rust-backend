@@ -516,6 +516,15 @@ fn _statevec_backend_rs<'py>(
     m.add_function(pyo3::wrap_pyfunction!(expectation_value, m)?)?;
 
     #[pyo3::pyfunction]
+    fn norm<'py>(
+        py_vec: PyVec<'py>,
+    ) -> pyo3::prelude::PyResult<f64> {
+        let vec = get_pyvec_mut(py_vec);
+        Ok(get_norm(vec.psi.iter()))
+    }
+    m.add_function(pyo3::wrap_pyfunction!(norm, m)?)?;
+
+    #[pyo3::pyfunction]
     fn remove_qubit<'py>(py_vec: PyVec<'py>, qubit: u8) -> pyo3::prelude::PyResult<()> {
         let vec = get_pyvec_mut(py_vec);
         vec.remove_qubit(qubit);

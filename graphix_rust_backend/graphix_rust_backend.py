@@ -1,13 +1,18 @@
-"""MBQC state vector backend."""
+"""MBQC state vector backend in Rust."""
 
 from __future__ import annotations
 
 import dataclasses
+import functools
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, SupportsComplex, SupportsFloat
 
 import _statevec_backend_rs as _backend  # noqa: PLC2701
 import numpy as np
+import numpy.typing as npt
+from graphix import states
+from graphix.parameter import Expression, ExpressionOrSupportsComplex
 from graphix.sim.base_backend import DenseState, DenseStateBackend, Matrix
 from graphix.states import BasicStates
 from typing_extensions import override
@@ -19,22 +24,8 @@ if TYPE_CHECKING:
     from graphix.sim.data import Data
 
 
-CZ_TENSOR = np.array(
-    [[[[1, 0], [0, 0]], [[0, 1], [0, 0]]], [[[0, 0], [1, 0]], [[0, 0], [0, -1]]]],
-    dtype=np.complex128,
-)
-CNOT_TENSOR = np.array(
-    [[[[1, 0], [0, 0]], [[0, 1], [0, 0]]], [[[0, 0], [0, 1]], [[0, 0], [1, 0]]]],
-    dtype=np.complex128,
-)
-SWAP_TENSOR = np.array(
-    [[[[1, 0], [0, 0]], [[0, 0], [1, 0]]], [[[0, 1], [0, 0]], [[0, 0], [0, 1]]]],
-    dtype=np.complex128,
-)
-
-
 class Statevec(DenseState):
-    """Statevector object."""
+    """Statevector object with Rust backend."""
 
     psi: Matrix
 
@@ -43,8 +34,7 @@ class Statevec(DenseState):
         data: Data = BasicStates.PLUS,
         nqubit: int | None = None,
     ) -> None:
-        """
-        Initialize statevector objects.
+        """Initialize statevector objects.
 
         `data` can be:
         - a single :class:`graphix.states.State` (classical description of a quantum state)
@@ -64,79 +54,76 @@ class Statevec(DenseState):
             input data to prepare the state. Can be a classical description or a numerical input, defaults to graphix.states.BasicStates.PLUS
         nqubit : int, optional
             number of qubits to prepare, defaults to None
-
         """
         if nqubit is not None and nqubit < 0:
             raise ValueError("nqubit must be a non-negative integer.")
 
-        # if isinstance(data, Statevec):
-        #     # assert nqubit is None or len(state.flatten()) == 2**nqubit
-        #     if nqubit is not None and len(data.flatten()) != 2**nqubit:
-        #         raise ValueError(
-        #             f"Inconsistent parameters between nqubit = {nqubit} and the inferred number of qubit = {len(data.flatten())}."
-        #         )
-        #     self.psi = data.psi.copy()
-        #     return
+        if isinstance(data, Statevec):
+            # assert nqubit is None or len(state.flatten()) == 2**nqubit
+            if nqubit is not None and len(data.flatten()) != 2**nqubit:
+                raise ValueError(
+                    f"Inconsistent parameters between nqubit = {nqubit} and the inferred number of qubit = {len(data.flatten())}."
+                )
+            self.psi = _backend.from_vec(_backend.get_vec(data.psi))  # TODO: Can we do more elegantly?
+            return
 
-        # # The type
-        # # list[states.State] | list[ExpressionOrSupportsComplex] | list[Iterable[ExpressionOrSupportsComplex]]
-        # # would be more precise, but given a value X of type Iterable[A] | Iterable[B],
-        # # mypy infers that list(X) has type list[A | B] instead of list[A] | list[B].
-        # input_list: list[states.State | ExpressionOrSupportsComplex | Iterable[ExpressionOrSupportsComplex]]
-        # if isinstance(data, states.State):
-        #     if nqubit is None:
-        #         nqubit = 1
-        #     input_list = [data] * nqubit
-        # elif isinstance(data, Iterable):
-        #     input_list = list(data)
-        # else:
-        #     raise TypeError(f"Incorrect type for data: {type(data)}")
+        # The type
+        # list[states.State] | list[ExpressionOrSupportsComplex] | list[Iterable[ExpressionOrSupportsComplex]]
+        # would be more precise, but given a value X of type Iterable[A] | Iterable[B],
+        # mypy infers that list(X) has type list[A | B] instead of list[A] | list[B].
+        input_list: list[states.State | ExpressionOrSupportsComplex | Iterable[ExpressionOrSupportsComplex]]
+        if isinstance(data, states.State):
+            if nqubit is None:
+                nqubit = 1
+            input_list = [data] * nqubit
+        elif isinstance(data, Iterable):
+            input_list = list(data)
+        else:
+            raise TypeError(f"Incorrect type for data: {type(data)}")
 
-        # if len(input_list) == 0:
-        #     if nqubit is not None and nqubit != 0:
-        #         raise ValueError("nqubit is not null but input state is empty.")
+        if len(input_list) == 0:
+            if nqubit is not None and nqubit != 0:
+                raise ValueError("nqubit is not null but input state is empty.")
 
-        #     self.psi = np.array(1, dtype=np.complex128)
+            self.psi = _backend.from_vec(np.array(1, dtype=np.complex128))
 
-        # elif isinstance(input_list[0], states.State):
-        #     if nqubit is None:
-        #         nqubit = len(input_list)
-        #     elif nqubit != len(input_list):
-        #         raise ValueError("Mismatch between nqubit and length of input state.")
+        elif isinstance(input_list[0], states.State):
+            if nqubit is None:
+                nqubit = len(input_list)
+            elif nqubit != len(input_list):
+                raise ValueError("Mismatch between nqubit and length of input state.")
 
-        #     def get_statevector(
-        #         s: states.State | ExpressionOrSupportsComplex | Iterable[ExpressionOrSupportsComplex],
-        #     ) -> npt.NDArray[np.complex128]:
-        #         if not isinstance(s, states.State):
-        #             raise TypeError("Data should be an homogeneous sequence of states.")
-        #         return s.get_statevector()
+            def get_statevector(
+                s: states.State | ExpressionOrSupportsComplex | Iterable[ExpressionOrSupportsComplex],
+            ) -> npt.NDArray[np.complex128]:
+                if not isinstance(s, states.State):
+                    raise TypeError("Data should be an homogeneous sequence of states.")
+                return s.get_statevector()
 
-        #     list_of_sv = [get_statevector(s) for s in input_list]
+            list_of_sv = [get_statevector(s) for s in input_list]
 
-        #     tmp_psi = functools.reduce(lambda m0, m1: np.kron(m0, m1).astype(np.complex128), list_of_sv)
-        #     # reshape
-        #     self.psi = tmp_psi.reshape((2,) * nqubit)
-        # # `SupportsFloat` is needed because `numpy.float64` is not an instance of `SupportsComplex`!
-        # elif isinstance(input_list[0], (Expression, SupportsComplex, SupportsFloat)):
-        #     if nqubit is None:
-        #         length = len(input_list)
-        #         if length & (length - 1):
-        #             raise ValueError("Length is not a power of two")
-        #         nqubit = length.bit_length() - 1
-        #     elif nqubit != len(input_list).bit_length() - 1:
-        #         raise ValueError("Mismatch between nqubit and length of input state")
-        #     psi = np.array(input_list)
-        #     # check only if the matrix is not symbolic
-        #     if psi.dtype != "O" and not np.allclose(np.sqrt(np.sum(np.abs(psi) ** 2)), 1):
-        #         raise ValueError("Input state is not normalized")
-        #     self.psi = psi.reshape((2,) * nqubit)
-        # else:
-        #     raise TypeError(f"First element of data has type {type(input_list[0])} whereas Number or State is expected")
-        self.psi = _backend.new_vec(nqubit, _backend.Plus)
+            tmp_psi = functools.reduce(lambda m0, m1: _backend.tensor_array(m0, m1).astype(np.complex128), list_of_sv)
+            self.psi = _backend.from_vec(tmp_psi)
+        # `SupportsFloat` is needed because `numpy.float64` is not an instance of `SupportsComplex`!
+        elif isinstance(input_list[0], (Expression, SupportsComplex, SupportsFloat)):
+            if nqubit is None:
+                length = len(input_list)
+                if length & (length - 1):
+                    raise ValueError("Length is not a power of two")
+                nqubit = length.bit_length() - 1
+            elif nqubit != len(input_list).bit_length() - 1:
+                raise ValueError("Mismatch between nqubit and length of input state")
+            psi = np.array(input_list)
+            self.psi = _backend.from_vec(psi.reshape((2,) * nqubit))
+            # check only if the matrix is not symbolic
+            if psi.dtype != "O" and not np.isclose(_backend.norm(self.psi), 1):
+                raise ValueError("Input state is not normalized")
+        else:
+            raise TypeError(f"First element of data has type {type(input_list[0])} whereas Number or State is expected")
 
     def __str__(self) -> str:
         """Return a string description."""
-        return f"Statevec object with statevector {self.psi} and length {self.dims()}."
+        return f"Statevec object with statevector {self.flatten()} and length {_backend.get_dims(self.psi)}."
 
     @override
     def add_nodes(self, nqubit: int, data: Data) -> None:
@@ -163,13 +150,8 @@ class Statevec(DenseState):
         Previously existing nodes remain unchanged.
 
         """
-        if data is BasicStates.PLUS:
-            state = _backend.Plus
-        elif data is BasicStates.ZERO:
-            state = _backend.Zero
-        else:
-            raise NotImplementedError
-        _backend.add_nodes(self.psi, nqubit, state)
+        sv_to_add = Statevec(nqubit=nqubit, data=data)
+        self.tensor(sv_to_add)
 
     @override
     def evolve_single(self, op: Matrix, i: int) -> None:
@@ -203,7 +185,7 @@ class Statevec(DenseState):
 
     def dims(self) -> tuple[int, ...]:
         """Return the dimensions."""
-        raise NotImplementedError
+        raise NotImplementedError("Rust statevector backend represents states as one-dimensional objects.")
 
     # Note that `@property` must appear before `@override` for pyright
     @property
