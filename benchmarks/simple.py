@@ -4,6 +4,7 @@ import cProfile
 import io
 import pstats
 import time
+from typing import TYPE_CHECKING
 
 import numpy as np
 from graphix.sim.statevec import StatevectorBackend as SB_np
@@ -11,8 +12,17 @@ from graphix.transpiler import Circuit
 
 from graphix_rust_backend import StatevectorBackend as SB_rs
 
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
-def simple_random_circuit(nqubit, depth):
+    from graphix.pattern import Pattern
+    from graphix.sim.base_backend import DenseState, DenseStateBackend
+
+
+rng = np.random.default_rng(42)
+
+
+def simple_random_circuit(nqubit: int, depth: int) -> Circuit:
     r"""Generate a test circuit for benchmarking.
 
     This function generates a circuit with nqubit qubits and depth layers,
@@ -33,22 +43,33 @@ def simple_random_circuit(nqubit, depth):
     qubit_index = list(range(nqubit))
     circuit = Circuit(nqubit)
     for _ in range(depth):
-        np.random.shuffle(qubit_index)
+        rng.shuffle(qubit_index)
         for j in range(len(qubit_index) // 2):
             circuit.cnot(qubit_index[2 * j], qubit_index[2 * j + 1])
         for j in range(len(qubit_index)):
-            circuit.rz(qubit_index[j], 2 * np.pi * np.random.random())
+            circuit.rz(qubit_index[j], 2 * np.pi * rng.random())
     return circuit
 
 
-def get_perf(f):
+def get_perf(f: Callable) -> float:
     start = time.perf_counter()
     f()
     end = time.perf_counter()
     return end - start
 
 
-def random_pattern(nqubits, depth):
+def random_pattern(nqubits: int, depth: int) -> Pattern:
+    """Generate a random pattern from a random circuit.
+
+    Parameters
+    ----------
+    nqubits : int
+    depth : int
+
+    Returns
+    -------
+    Pattern
+    """
     circuit = simple_random_circuit(nqubits, depth)
     pattern = circuit.transpile().pattern
     pattern.standardize()
@@ -57,22 +78,22 @@ def random_pattern(nqubits, depth):
 
 
 class TimeSuite:
-    def setup(self, ncircuits, nqubits, depth):
+    def setup(self, ncircuits: int, nqubits: int, depth: int) -> None:
         self.patterns = [random_pattern(nqubits, depth) for _ in range(ncircuits)]
 
-    def test_consistency(self):
+    def test_consistency(self) -> None:
         for pattern in self.patterns:
-            numpy_result = pattern.simulate_pattern(backend=SB_np())
-            rust_result = pattern.simulate_pattern(backend=SB_rs())
-            assert np.allclose(numpy_result.flatten(), rust_result.flatten())
+            state_np = pattern.simulate_pattern(backend=SB_np())
+            state_rs = pattern.simulate_pattern(backend=SB_rs())
+            assert np.isclose(np.abs(np.dot(state_rs.flatten().conjugate(), state_np.flatten())), 1)
 
-    def time_impl(self, backend):
+    def time_impl(self, backend: DenseStateBackend[DenseState]) -> None:
         for pattern in self.patterns:
             pattern.simulate_pattern(backend=backend)
 
 
 ts = TimeSuite()
-ts.setup(20, 16, 2)
+ts.setup(5, 4, 2)
 ts.test_consistency()
 
 

@@ -1,3 +1,4 @@
+"""Test for Rust backend."""
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
@@ -8,15 +9,20 @@ from graphix.clifford import Clifford
 from graphix.fundamentals import Plane
 from graphix.measurements import Measurement
 from graphix.pauli import Pauli
+from graphix.random_objects import rand_circuit
+from graphix.sim.statevec import StatevectorBackend as SB_py
 from graphix.states import BasicStates, PlanarState
+from numpy.random import Generator
 
 from graphix_rust_backend import Statevec, StatevectorBackend
 
 if TYPE_CHECKING:
-    from numpy.random import Generator
+    from numpy.random import PCG64
 
 
 class TestStatevec:
+    """Tests adapted from graphix.tests.test_statevec_backend.py."""
+
     @pytest.mark.parametrize(
         "state", [BasicStates.PLUS, BasicStates.ZERO, BasicStates.ONE, BasicStates.PLUS_I, BasicStates.MINUS_I]
     )
@@ -42,8 +48,6 @@ class TestStatevec:
         with pytest.raises(AssertionError):
             sv.remove_qubit(k)
 
-
-class TestStatevecNew:
     # test initialization only
     def test_init_success(self, hadamardpattern, fx_rng: Generator) -> None:
         # plus state (default)
@@ -177,3 +181,22 @@ class TestStatevecNew:
             result = backend.measure(node=node_to_measure, measurement=measurement)
             assert result == expected_result
             assert list(backend.node_index) == list(range(1, n_neighbors + 1))
+
+    # Comparison between numpy and rust backends
+    @pytest.mark.parametrize("jumps", range(1, 11))
+    def test_compare_backend(self, fx_bg: PCG64, jumps: int) -> None:
+        rng = Generator(fx_bg.jumped(jumps))
+        nqubits = 3
+        depth = 3
+        circuit = rand_circuit(nqubits, depth, rng)
+        pattern = circuit.transpile().pattern
+        pattern.standardize()
+        pattern.minimize_space()
+
+        backend_rs = StatevectorBackend()
+        backend_py = SB_py()
+
+        state_rs = pattern.simulate_pattern(backend=backend_rs)
+        state_py = pattern.simulate_pattern(backend=backend_py)
+
+        assert np.abs(np.dot(state_rs.flatten().conjugate(), state_py.flatten())) == pytest.approx(1)
