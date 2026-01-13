@@ -8,7 +8,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, SupportsComplex, SupportsFloat
 
-import _statevec_backend_rs as _backend  # noqa: PLC2701
+import graphix_rust_backend._graphix_rust_backend as _backend  # noqa: PLC2701
 import numpy as np
 import numpy.typing as npt
 from graphix import states
