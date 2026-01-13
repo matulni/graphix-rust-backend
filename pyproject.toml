@@ -11,7 +11,9 @@ classifiers = [
     "Programming Language :: Python :: Implementation :: PyPy",
 ]
 dynamic = ["version"]
+
 [tool.maturin]
+module-name = "graphix_rust_backend._graphix_rust_backend"
 features = ["pyo3/extension-module"]
 
 [tool.setuptools.dynamic]
@@ -19,7 +21,6 @@ dependencies = { file = ["requirements.txt"] }
 
 [tool.setuptools.dynamic.optional-dependencies]
 dev = { file = ["requirements-dev.txt"] }
-
 
 [tool.ruff]
 line-length = 120
