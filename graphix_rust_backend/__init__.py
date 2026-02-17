@@ -2,6 +2,6 @@
 
 from __future__ import annotations
 
-from graphix_rust_backend.graphix_rust_backend import Statevec, StatevectorBackend
+from graphix_rust_backend.graphix_rust_backend import StatevecRust, StatevectorRustBackend
 
-__all__ = ["Statevec", "StatevectorBackend"]
+__all__ = ["StatevecRust", "StatevectorRustBackend"]

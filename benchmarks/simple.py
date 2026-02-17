@@ -10,7 +10,7 @@ import numpy as np
 from graphix.sim.statevec import StatevectorBackend as SB_np
 from graphix.transpiler import Circuit
 
-from graphix_rust_backend import StatevectorBackend as SB_rs
+from graphix_rust_backend import StatevectorRustBackend as SB_rs
 
 if TYPE_CHECKING:
     from collections.abc import Callable

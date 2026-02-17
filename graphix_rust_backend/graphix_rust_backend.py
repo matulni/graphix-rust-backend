@@ -1,4 +1,4 @@
-"""MBQC state vector backend in Rust."""
+"""MBQC state vector backend simulator in Rust."""
 
 from __future__ import annotations
 
@@ -34,24 +34,14 @@ class StatevecRust(DenseState):
     ) -> None:
         """Initialize statevector objects.
 
-        `data` can be:
-        - a single :class:`graphix.states.State` (classical description of a quantum state)
-        - an iterable of :class:`graphix.states.State` objects
-        - an iterable of scalars (A 2**n numerical statevector)
-        - a *graphix.statevec.Statevec* object
-
-        If *nqubit* is not provided, the number of qubit is inferred from *data* and checked for consistency.
-        If only one :class:`graphix.states.State` is provided and nqubit is a valid integer, initialize the statevector
-        in the tensor product state.
-        If both *nqubit* and *data* are provided, consistency of the dimensions is checked.
-        If a *graphix.statevec.Statevec* is passed, returns a copy.
+        See :class:`graphix.sim.statevec.Statevec` for additional information.
 
         Parameters
         ----------
         data : Data, optional
-            input data to prepare the state. Can be a classical description or a numerical input, defaults to graphix.states.BasicStates.PLUS
+            Input data to prepare the state. Can be a classical description or a numerical input, defaults to 1graphix.states.BasicStates.PLUS`
         nqubit : int, optional
-            number of qubits to prepare, defaults to None
+            Number of qubits to prepare, defaults to ``None``
         """
         sv_graphix = Statevec(data, nqubit)
         self.psi = _backend.from_vec(sv_graphix.flatten())
@@ -60,6 +50,18 @@ class StatevecRust(DenseState):
         """Return a string description."""
         sv = self.flatten()
         return f"Statevec object with statevector {sv} and length {len(sv)}."
+
+    # Note that `@property` must appear before `@override` for pyright
+    @property
+    @override
+    def nqubit(self) -> int:
+        """Return the number of qubits."""
+        return _backend.get_nqubits(self.psi)
+
+    @override
+    def flatten(self) -> Matrix:
+        """Return flattened state."""
+        return _backend.get_vec(self.psi)
 
     @override
     def add_nodes(self, nqubit: int, data: Data) -> None:
@@ -78,73 +80,14 @@ class StatevecRust(DenseState):
             - If a list of basic states is provided, it must match the length of ``nodes``, and
               each node is initialized with its corresponding state.
             - A single-qubit state vector will be broadcast to all nodes.
-            - A multi-qubit state vector of dimension :math:`2^n`, where :math:`n = \mathrm{len}(nodes)`,
-              initializes the new nodes jointly.
+            - A multi-qubit state vector of dimension :math:`2^n`, where :math:`n = \mathrm{len}(nodes)`, initializes the new nodes jointly.
 
         Notes
         -----
         Previously existing nodes remain unchanged.
-
         """
-        sv_to_add = Statevec(nqubit=nqubit, data=data)
+        sv_to_add = StatevecRust(nqubit=nqubit, data=data)
         self.tensor(sv_to_add)
-
-    def tensor(self, other: Statevec) -> None:
-        r"""
-        Tensor product state with other qubits.
-
-        Results in self :math:`\otimes` other.
-
-        Parameters
-        ----------
-        other : :class:`graphix.sim.statevec.Statevec`
-            statevector to be tensored with self
-
-        """
-        _backend.tensor(self.psi, other.flatten())
-
-    def cnot(self, qubits: tuple[int, int]) -> None:
-        """
-        Apply CNOT.
-
-        Parameters
-        ----------
-        qubits : tuple of int
-            (control, target) qubit indices
-
-        """
-        _backend.cnot(self.psi, qubits[0], qubits[1])
-
-    ####################
-
-    # Note that `@property` must appear before `@override` for pyright
-    @property
-    @override
-    def nqubit(self) -> int:
-        """Return the number of qubits."""
-        return _backend.get_nqubits(self.psi)
-
-    @override  # Is return type ok?
-    def flatten(self) -> Matrix:
-        """Return flattened state."""
-        return _backend.get_vec(self.psi)
-
-    # @abstractmethod
-    # def add_nodes(self, nqubit: int, data: Data) -> None:
-    #     """
-    #     Add nodes (qubits) to the state and initialize them in a specified state.
-
-    #     Parameters
-    #     ----------
-    #     nqubit : int
-    #         The number of qubits to add to the state.
-
-    #     data : Data, optional
-    #         The state in which to initialize the newly added nodes. The supported forms
-    #         of state specification depend on the backend implementation.
-
-    #     See :meth:`Backend.add_nodes` for further details.
-    #     """
 
     @override
     def entangle(self, edge: tuple[int, int]) -> None:
@@ -198,7 +141,7 @@ class StatevecRust(DenseState):
         -------
         complex : expectation value.
         """
-        return _backend.expectation_value(self.psi, op, loc).real
+        return _backend.expectation_value(self.psi, op, loc)
 
     @override
     def remove_qubit(self, qarg: int) -> None:
@@ -217,9 +160,31 @@ class StatevecRust(DenseState):
         """
         _backend.swap(self.psi, qubits)
 
+    def tensor(self, other: StatevecRust) -> None:
+        r"""Tensor product state with other qubits.
+
+        Results in ``self`` :math:`\otimes` ``other``.
+
+        Parameters
+        ----------
+        other : :class:`graphix.sim.statevec.Statevec`
+            Statevector to be tensored with ``self``.
+        """
+        _backend.tensor(self.psi, other.flatten())
+
+    def cnot(self, qubits: tuple[int, int]) -> None:
+        """Apply CNOT.
+
+        Parameters
+        ----------
+        qubits : tuple of int
+            (control, target) qubit indices.
+        """
+        _backend.cnot(self.psi, qubits[0], qubits[1])
+
 
 @dataclass(frozen=True)
-class StatevectorBackend(DenseStateBackend[Statevec]):
-    """MBQC simulator with statevector method."""
+class StatevectorRustBackend(DenseStateBackend[StatevecRust]):
+    """MBQC state vector backend simulator in Rust."""
 
-    state: Statevec = dataclasses.field(init=False, default_factory=lambda: Statevec(nqubit=0))
+    state: StatevecRust = dataclasses.field(init=False, default_factory=lambda: StatevecRust(nqubit=0))

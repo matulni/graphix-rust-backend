@@ -4,6 +4,14 @@ build-backend = "maturin"
 
 [project]
 name = "graphix-rust-backend"
+authors = [
+    { name = "Mateo Uldemolins", email = "mateo.uldemolins-nivela@inria.fr" },
+    { name = "Thierry Martinez", email = "thierry.martinez@inria.fr" },
+]
+maintainers = [
+    { name = "Mateo Uldemolins", email = "mateo.uldemolins-nivela@inria.fr" },
+    { name = "Thierry Martinez", email = "thierry.martinez@inria.fr" },
+]
 requires-python = ">=3.10"
 classifiers = [
     "Programming Language :: Rust",
