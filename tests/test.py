@@ -1,7 +1,10 @@
+from __future__ import annotations
+
 import functools
+
+import _statevec_backend_rs as _backend
 import hypothesis as hyp
 import numpy as np
-import mbqc_rs
 
 atol = 1e-8
 
@@ -39,19 +42,19 @@ def non_null_array_st(min_length=0, max_length=8):
 
 @hyp.given(
     hyp.strategies.integers(min_value=0, max_value=16),
-    hyp.strategies.sampled_from([mbqc_rs.Zero, mbqc_rs.Plus]),
+    hyp.strategies.sampled_from([_backend.Zero, _backend.Plus]),
 )
 def test_new_vec(nqubits, state):
-    vec = mbqc_rs.new_vec(nqubits, state)
-    assert mbqc_rs.get_nqubits(vec) == nqubits
-    array = mbqc_rs.get_vec(vec)
+    vec = _backend.new_vec(nqubits, state)
+    assert _backend.get_nqubits(vec) == nqubits
+    array = _backend.get_vec(vec)
     assert len(array) == 1 << nqubits
-    if state == mbqc_rs.Zero:
+    if state == _backend.Zero:
         state_mat = np.array([1, 0])
-    elif state == mbqc_rs.Plus:
+    elif state == _backend.Plus:
         state_mat = np.array([1, 1]) / np.sqrt(2)
     else:
-        assert False
+        raise AssertionError
     ref = functools.reduce(np.kron, (state_mat for _ in range(nqubits)), np.array(1, dtype=np.complex128))
     np.testing.assert_allclose(array, ref.flatten())
 
@@ -61,13 +64,13 @@ def test_from_vec(array):
     nqubits = get_nqubits(array)
     norm = get_norm(array)
     try:
-        vec = mbqc_rs.from_vec(array)
+        vec = _backend.from_vec(array)
         assert norm != 0
     except ValueError:
         assert norm == 0
         return
-    assert mbqc_rs.get_nqubits(vec) == nqubits
-    array2 = mbqc_rs.get_vec(vec)
+    assert _backend.get_nqubits(vec) == nqubits
+    array2 = _backend.get_vec(vec)
     assert len(array2) == 1 << nqubits
     array /= norm
     np.testing.assert_allclose(array, array2)
@@ -76,7 +79,7 @@ def test_from_vec(array):
 @hyp.given(hyp.strategies.lists(complex_st).map(np.array))
 def test_from_vec_invalid_size(array):
     try:
-        vec = mbqc_rs.from_vec(array)
+        _backend.from_vec(array)
         valid = True
     except TypeError:
         assert len(array) == 0
@@ -88,16 +91,16 @@ def test_from_vec_invalid_size(array):
 
 @hyp.given(non_null_array_st(), non_null_array_st())
 def test_tensor_array(a, b):
-    result = mbqc_rs.tensor_array(a, b)
+    result = _backend.tensor_array(a, b)
     ref = np.kron(reshape_tensor(a), reshape_tensor(b)).flatten()
     np.testing.assert_allclose(result, ref)
 
 
 @hyp.given(non_null_array_st(), non_null_array_st())
 def test_tensor(a, b):
-    vec = mbqc_rs.from_vec(a)
-    mbqc_rs.tensor(vec, b)
-    result = mbqc_rs.get_vec(vec)
+    vec = _backend.from_vec(a)
+    _backend.tensor(vec, b)
+    result = _backend.get_vec(vec)
     a /= get_norm(a)
     ref = np.kron(reshape_tensor(a), reshape_tensor(b)).flatten()
     np.testing.assert_allclose(result, ref)
@@ -107,9 +110,9 @@ def test_tensor(a, b):
 # def test_apply(params):
 #    (array, tensor, qubits) = params
 #    tensor = np.array(tensor)
-#    vec_array = mbqc_rs.from_vec(array)
-#    mbqc_rs.apply(vec_array, tensor, qubits)
-#    result = mbqc_rs.get_vec(vec_array)
+#    vec_array = _backend.from_vec(array)
+#    _backend.apply(vec_array, tensor, qubits)
+#    result = _backend.get_vec(vec_array)
 #    tensor_qubits = tuple(range(len(qubits), 2 * len(qubits)))
 #    base_qubits = tuple(range(len(qubits)))
 #    array /= get_norm(array)
@@ -134,9 +137,9 @@ def array_and_one_qubit_st():
 @hyp.given(array_and_one_qubit_st(), non_null_array_st(min_length=2, max_length=2))
 def test_evolve(pair, op):
     (array, qubit) = pair
-    vec_array = mbqc_rs.from_vec(array)
-    mbqc_rs.evolve(vec_array, op, qubit)
-    result = mbqc_rs.get_vec(vec_array)
+    vec_array = _backend.from_vec(array)
+    _backend.evolve(vec_array, op, qubit)
+    result = _backend.get_vec(vec_array)
     array /= get_norm(array)
     array = np.tensordot(reshape_tensor(op), reshape_tensor(array), (1, qubit))
     array = np.moveaxis(array, 0, qubit)
@@ -146,8 +149,8 @@ def test_evolve(pair, op):
 @hyp.given(array_and_one_qubit_st(), non_null_array_st(min_length=2, max_length=2))
 def test_expectation_value(pair, op):
     (array, qubit) = pair
-    vec_array = mbqc_rs.from_vec(array)
-    result = mbqc_rs.expectation_value(vec_array, op, qubit)
+    vec_array = _backend.from_vec(array)
+    result = _backend.expectation_value(vec_array, op, qubit)
     array /= get_norm(array)
     array = reshape_tensor(array)
     evolved = np.tensordot(reshape_tensor(op), array, (1, qubit))
@@ -186,18 +189,18 @@ def array_and_two_qubits_st():
     array_and_two_qubits_st(),
     hyp.strategies.sampled_from(
         [
-            (CZ_TENSOR, mbqc_rs.entangle),
-            (SWAP_TENSOR, mbqc_rs.swap),
-            (CNOT_TENSOR, lambda vec, pair: mbqc_rs.cnot(vec, pair[0], pair[1])),
+            (CZ_TENSOR, _backend.entangle),
+            (SWAP_TENSOR, _backend.swap),
+            (CNOT_TENSOR, lambda vec, pair: _backend.cnot(vec, pair[0], pair[1])),
         ]
     ),
 )
 def test_operator(array_pair, op_pair):
     (array, qubits) = array_pair
     (tensor, method) = op_pair
-    vec_array = mbqc_rs.from_vec(array)
+    vec_array = _backend.from_vec(array)
     method(vec_array, qubits)
-    result = mbqc_rs.get_vec(vec_array)
+    result = _backend.get_vec(vec_array)
     array /= get_norm(array)
     array = reshape_tensor(array)
     expected = np.tensordot(tensor, array, ((2, 3), qubits))

@@ -360,7 +360,7 @@ impl Statevec {
 }
 
 #[pyo3::pymodule]
-fn mbqc_rs<'py>(
+fn _graphix_rust_backend<'py>(
     _py: pyo3::prelude::Python<'py>,
     m: &pyo3::prelude::Bound<'py, pyo3::types::PyModule>,
 ) -> pyo3::prelude::PyResult<()> {
@@ -514,6 +514,15 @@ fn mbqc_rs<'py>(
         Ok(vec.expectation_value(py_op.as_slice()?.try_into()?, qubit))
     }
     m.add_function(pyo3::wrap_pyfunction!(expectation_value, m)?)?;
+
+    #[pyo3::pyfunction]
+    fn norm<'py>(
+        py_vec: PyVec<'py>,
+    ) -> pyo3::prelude::PyResult<f64> {
+        let vec = get_pyvec_mut(py_vec);
+        Ok(get_norm(vec.psi.iter()))
+    }
+    m.add_function(pyo3::wrap_pyfunction!(norm, m)?)?;
 
     #[pyo3::pyfunction]
     fn remove_qubit<'py>(py_vec: PyVec<'py>, qubit: u8) -> pyo3::prelude::PyResult<()> {
