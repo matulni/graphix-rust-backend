@@ -1,4 +1,5 @@
 """Test for Rust backend."""
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
@@ -42,7 +43,9 @@ class TestStatevec:
     def test_measurement_into_minus_state(self) -> None:
         n = 3
         k = 0
-        m_op = np.outer(BasicStates.MINUS.get_statevector(), BasicStates.MINUS.get_statevector().T.conjugate()).astype(np.complex128)
+        m_op = np.outer(BasicStates.MINUS.get_statevector(), BasicStates.MINUS.get_statevector().T.conjugate()).astype(
+            np.complex128
+        )
         sv = Statevec(nqubit=n)
         sv.evolve_single(m_op, k)
         with pytest.raises(AssertionError):
